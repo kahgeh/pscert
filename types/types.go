@@ -1,5 +1,9 @@
 package types
 
-type ExitStatus int8
-
-const ExitFail ExitStatus = -1
+type SaveParameters struct {
+	DomainName  string
+	DomainEmail string
+	KeyId       string
+	Path        string
+	ValidDays   int
+}

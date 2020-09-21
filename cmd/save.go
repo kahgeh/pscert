@@ -24,21 +24,35 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"os/exec"
 )
 
 // saveCmd represents the save command
 var saveCmd = &cobra.Command{
 	Use:   "save",
 	Short: "saves certificates to parameter store",
-	Long: `saves certificates to parameter store`,
-	Run: save,
+	Long:  `saves certificates to parameter store`,
+	Run:   save,
 }
 
-func mapToConfig() (string, string, string, string){
-	return viper.GetString("domain-name"),viper.GetString("folder-path"), viper.GetString("key-id"), viper.GetString("pstore-path")
+func mapViperToParameters() *types.SaveParameters {
+	return &types.SaveParameters{
+		DomainName:  viper.GetString("domain-name"),
+		DomainEmail: viper.GetString("domain-email"),
+		KeyId:       viper.GetString("key-id"),
+		Path:        viper.GetString("pstore-path"),
+		ValidDays:   viper.GetInt("valid-days"),
+	}
 }
 
-func getFiles(folderPath string) []os.FileInfo{
+func createFolderIfNotExist(folderPath string) error {
+	if _, err := os.Stat(folderPath); os.IsNotExist(err) {
+		return os.MkdirAll(folderPath, os.ModePerm)
+	}
+	return nil
+}
+
+func getFiles(folderPath string) []os.FileInfo {
 
 	f, err := os.Open(folderPath)
 	if err != nil {
@@ -49,42 +63,67 @@ func getFiles(folderPath string) []os.FileInfo{
 	return files
 }
 
-func save(cmd *cobra.Command, args []string) {
-	_, folderPath, keyId, pstorePath := mapToConfig()
+func generateCert(domainName string, domainEmail string) {
+	cmd := exec.Command("certbot", "certonly", "--standalone", "-d", domainName, "--email", domainEmail, "-n", "--agree-tos", "--expand")
+	err := cmd.Run()
+	if err != nil {
+		log.Fatalf("failed to generate cert %s\n", err)
+	}
+}
+
+func save(_ *cobra.Command, _ []string) {
+	param := mapViperToParameters()
+	paramStorePath := param.Path
+	validDays := float64(param.ValidDays)
+	domainName := param.DomainName
+	domainEmail := param.DomainEmail
+	keyId := param.KeyId
+	folderPath := fmt.Sprintf("/etc/letsencrypt/live/%s", domainName)
 	session, err := aws.NewSession()
 	if err != nil {
 		log.Fatal(err)
 		return
 	}
-	log.Printf("folder path = %q", folderPath)
 
-	if _, err := os.Stat(folderPath); os.IsNotExist(err){
+	ssmSession := session.NewSsmSession()
+	if exists, parameters := ssmSession.Exists(paramStorePath, validDays); exists {
+		err := createFolderIfNotExist(folderPath)
+		if err != nil {
+			log.Fatalf("fail to create folder %q because %s", folderPath, err.Error())
+		}
+		ssmSession.Restore(parameters, folderPath)
+		return
+	}
+
+	generateCert(domainName, domainEmail)
+
+	if _, err := os.Stat(folderPath); os.IsNotExist(err) {
 		log.Fatal(err)
 	}
+
 	files := getFiles(folderPath)
-	for _,file := range files {
+	for _, file := range files {
 		fileName := file.Name()
-		filePath :=fmt.Sprintf("%s/%s", folderPath, fileName)
+		filePath := fmt.Sprintf("%s/%s", folderPath, fileName)
 
 		content, err := ioutil.ReadFile(filePath)
 		if err != nil {
 			log.Fatal(err)
 		}
-		session.Save(fileName, string(content), keyId, pstorePath)
+		ssmSession.Save(fileName, string(content), keyId, paramStorePath)
 	}
 }
 
 func init() {
 	rootCmd.AddCommand(saveCmd)
 	saveCmd.PersistentFlags().String("domain-name", "", "--domain-name app.xyz.com")
-	saveCmd.PersistentFlags().String("folder-path", "", "--folder-path /etc/letsencrypt/live/app.xyz.com")
+	saveCmd.PersistentFlags().String("domain-email", "", "--domain-email ibu@xyz.com")
 	saveCmd.PersistentFlags().String("key-id", "", "--key-id alias/aws/ssm")
 	saveCmd.PersistentFlags().String("pstore-path", "", "--pstore-path /allEnvs/DevTest/ssl")
+	saveCmd.PersistentFlags().Int("valid-days", 60, "--valid-days 30")
 	err := viper.BindPFlags(saveCmd.PersistentFlags())
 
 	if err != nil {
-		log.Printf("fail to bind command arguments\n %s", err.Error())
-		os.Exit(int(types.ExitFail))
-		return
+		log.Fatalf("fail to bind command arguments\n %s", err.Error())
 	}
 }
