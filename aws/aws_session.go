@@ -92,10 +92,6 @@ func (session *SsmSession) Restore(parameters []ssm.Parameter, folderPath string
 }
 
 func (session *SsmSession) Save(name string, content string, keyId string, path string) {
-	if strings.HasPrefix(name, ".") {
-		log.Printf("skipping %q ", name)
-		return
-	}
 	api := session.api
 	tier := ssm.ParameterTierStandard
 	if len(content) > 4000 {

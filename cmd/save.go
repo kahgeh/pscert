@@ -25,6 +25,7 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"strings"
 )
 
 // saveCmd represents the save command
@@ -53,7 +54,6 @@ func createFolderIfNotExist(folderPath string) error {
 }
 
 func getFiles(folderPath string) []os.FileInfo {
-
 	f, err := os.Open(folderPath)
 	if err != nil {
 		log.Fatal(err)
@@ -67,10 +67,16 @@ func generateCert(domainName string, domainEmail string) {
 	cmd := exec.Command("certbot", "certonly", "--standalone", "-d", domainName, "--email", domainEmail, "-n", "--agree-tos", "--expand")
 	out, _ := cmd.CombinedOutput()
 	err := cmd.Run()
-	if err != nil {
-		log.Fatalf("failed to generate cert %s\n%s\n", err, string(out))
+
+	output := string(out)
+	successText := "certificate and chain have been saved at"
+	log.Printf("%s\n", output)
+	if strings.Contains(output, successText) {
+		log.Println("successfully generated cert")
+		return
 	}
-	log.Printf("%s\n", string(out))
+
+	log.Fatalf("failed to generate cert %s\n", err.Error())
 }
 
 func save(_ *cobra.Command, _ []string) {
@@ -86,7 +92,6 @@ func save(_ *cobra.Command, _ []string) {
 		log.Fatal(err)
 		return
 	}
-
 	ssmSession := session.NewSsmSession()
 	if exists, parameters := ssmSession.Exists(paramStorePath, validDays); exists {
 		err := createFolderIfNotExist(folderPath)
@@ -106,8 +111,11 @@ func save(_ *cobra.Command, _ []string) {
 	files := getFiles(folderPath)
 	for _, file := range files {
 		fileName := file.Name()
+		if !strings.HasSuffix(fileName, ".pem") {
+			log.Printf("skipping non .pem file %q...", fileName)
+			continue
+		}
 		filePath := fmt.Sprintf("%s/%s", folderPath, fileName)
-
 		content, err := ioutil.ReadFile(filePath)
 		if err != nil {
 			log.Fatal(err)
