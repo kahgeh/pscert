@@ -71,7 +71,6 @@ func (session *SsmSession) Exists(path string, validDays float64) (bool, []ssm.P
 	if len(response.Parameters) < 1 {
 		return false, nil
 	}
-	log.Printf(response.String())
 	now := time.Now()
 	today := date(now.Year(), now.Month(), now.Day())
 	year, month, day := response.Parameters[0].LastModifiedDate.Date()

@@ -65,10 +65,12 @@ func getFiles(folderPath string) []os.FileInfo {
 
 func generateCert(domainName string, domainEmail string) {
 	cmd := exec.Command("certbot", "certonly", "--standalone", "-d", domainName, "--email", domainEmail, "-n", "--agree-tos", "--expand")
+	out, _ := cmd.CombinedOutput()
 	err := cmd.Run()
 	if err != nil {
-		log.Fatalf("failed to generate cert %s\n", err)
+		log.Fatalf("failed to generate cert %s\n%s\n", err, string(out))
 	}
+	log.Printf("%s\n", string(out))
 }
 
 func save(_ *cobra.Command, _ []string) {
